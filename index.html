@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>車代精算</title>
+<title>遠征費精算</title>
 <style>
 :root{
   --ai:#22324F; --ai2:#4A6285; --sumi:#1C1F26; --ji:#F3F4F6; --kami:#FFFFFF;
@@ -16,7 +16,8 @@ body{margin:0;background:var(--ji);color:var(--sumi);
 header{background:var(--ai);color:#fff;padding:18px 16px 14px;border-bottom:4px solid var(--take)}
 header h1{margin:0;font-size:22px;letter-spacing:.08em}
 header p{margin:2px 0 0;font-size:13px;opacity:.8}
-main{max-width:640px;margin:0 auto;padding:12px 12px 80px}
+main{max-width:640px;margin:0 auto;padding:12px 12px 8px}
+footer{max-width:640px;margin:0 auto;padding:16px 12px 60px;text-align:center;font-size:13px;color:var(--mute);letter-spacing:.08em}
 section{background:var(--kami);border:1px solid var(--line);border-radius:6px;padding:14px;margin:12px 0}
 h2{font-size:16px;margin:0 0 10px;padding-left:10px;border-left:4px solid var(--ai);color:var(--ai)}
 h3{font-size:14px;margin:14px 0 4px;color:var(--mute);font-weight:700}
@@ -137,8 +138,8 @@ button.mini{font-size:12px;padding:4px 10px}
 </head>
 <body>
 <header>
-  <h1>車代精算</h1>
-  <p>剣道 大会・練習試合の車代と差し入れ代をまとめて計算</p>
+  <h1>遠征費精算</h1>
+  <p>大会・練習試合の車代と差し入れ代をまとめて計算</p>
 </header>
 <main>
 
@@ -245,6 +246,7 @@ button.mini{font-size:12px;padding:4px 10px}
   <p class="hint">書き出したPDFには入力データも入っています。あとで「ファイルから読み込む」でそのPDF（またはデータファイル）を選ぶと、続きから入力し直せます。</p>
 </section>
 </main>
+<footer>大阪ひかり剣友会</footer>
 <div id="report" aria-hidden="true"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -613,7 +615,7 @@ function render(){
 
 function lineText(){
   const r=render(), L=[], Y=v=>yen(v)+"円";
-  L.push(`【車代精算】${st.date?st.date.replace(/-/g,"/"):""} ${st.event||""}${st.place?`（${st.place}）`:""}`.trim());
+  L.push(`【遠征費精算】${st.date?st.date.replace(/-/g,"/"):""} ${st.event||""}${st.place?`（${st.place}）`:""}`.trim());
   const nm=(a,leg)=>a.length?a.map(n=>{const c=leg?leg.cars.find(c=>c.name===n):r.cars.find(c=>c.name===n);return n+(c&&c.count===2?"(2台)":"")}).join("・"):"なし";
   L.push("","■参加家庭");
   if(!r.split){
@@ -772,7 +774,7 @@ $("btnCopyLeg").onclick=()=>{
 $("btnAddItem").onclick=()=>{st.items.push({name:"",price:"",payer:""});buildItems();render();const ins=$("itemList").querySelectorAll('input[data-k$=":name"]');ins[ins.length-1].focus();};
 $("itemList").addEventListener("click",e=>{const i=e.target.dataset.delitem;if(i===undefined)return;st.items.splice(Number(i),1);if(!st.items.length)st.items.push({name:"",price:"",payer:""});buildItems();render();});
 $("btnCopy").onclick=async()=>toast(await copyText(lineText())?"コピーしました":"コピーできませんでした");
-$("btnJson").onclick=()=>{render();download(new Blob([packData()],{type:"application/json"}),`車代精算データ_${baseName()}.json`);toast("データを書き出しました");};
+$("btnJson").onclick=()=>{render();download(new Blob([packData()],{type:"application/json"}),`遠征費精算データ_${baseName()}.json`);toast("データを書き出しました");};
 $("btnLoad").onclick=()=>$("fileIn").click();
 $("fileIn").onchange=e=>{const f=e.target.files[0]; if(f) loadFile(f); e.target.value="";};
 $("btnNew").onclick=()=>{
@@ -798,7 +800,7 @@ function buildReport(r){
     :`直接入力：1台 ${r.split?"往復 ":""}${Y(r.base)}`;
 
   let h=`<div class="pg-top"></div>
-  <div class="blk"><h1>車代精算書</h1><div class="sub"><span>剣道 大会・練習試合${r.split?"　往路・復路 別精算":""}</span><span>作成日 ${made}</span></div>
+  <div class="blk"><h1>遠征費精算書</h1><div class="sub"><span>大会・練習試合${r.split?"　往路・復路 別精算":""}</span><span>作成日 ${made}</span></div>
   <table class="info"><tr><th>日時</th><td>${E(d)}</td></tr><tr><th>大会名</th><td>${E(st.event||"")}</td></tr><tr><th>場所</th><td>${E(st.place||"")}</td></tr></table></div>`;
 
   if(!r.split){
@@ -886,7 +888,7 @@ function buildReport(r){
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error(src));document.head.appendChild(s);});}
 async function exportPdf(){
   const r=render(); const pages=buildReport(r);
-  const fname=`車代精算_${baseName()}.pdf`;
+  const fname=`遠征費精算_${baseName()}.pdf`;
   toast("PDFを作成中…");
   try{
     if(!window.html2canvas) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");
@@ -894,12 +896,13 @@ async function exportPdf(){
     const rep=$("report"), S=2;
     const canvas=await html2canvas(rep,{scale:S,backgroundColor:"#ffffff",width:794,height:pages*PAGE_H,windowWidth:794});
     const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4",compress:true});
-    pdf.setProperties({title:"Kurumadai Seisan",subject:"KDDATA:"+b64enc(packData())+":KDEND",creator:APP});
+    pdf.setProperties({title:"Ensei-hi Seisan",subject:"KDDATA:"+b64enc(packData())+":KDEND",creator:APP});
     for(let i=0;i<pages;i++){
       const c=document.createElement("canvas");c.width=794*S;c.height=PAGE_H*S;
       const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);
       g.drawImage(canvas,0,i*PAGE_H*S,c.width,c.height,0,0,c.width,c.height);
-      g.fillStyle="#666";g.font=`${10*S}px sans-serif`;g.textAlign="center";g.fillText(`${i+1} / ${pages}`,c.width/2,c.height-20*S);
+      g.fillStyle="#666";g.font=`${10*S}px sans-serif`;
+      g.textAlign="center";g.fillText(`${i+1} / ${pages}`,c.width/2,c.height-20*S);
       if(i) pdf.addPage();
       pdf.addImage(c.toDataURL("image/jpeg",0.92),"JPEG",0,0,210,297);
     }
