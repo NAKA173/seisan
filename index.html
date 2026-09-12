@@ -156,20 +156,20 @@ button.mini{font-size:12px;padding:4px 10px}
   <h2>参加家庭</h2>
   <label class="check" style="margin-top:0"><input type="checkbox" id="split">往路と復路を分けて入力する</label>
   <div id="normalRoles">
-    <div class="role"><span class="r-d">車出し</span><input id="drivers" placeholder="A C G"></div>
-    <div class="role"><span class="r-r">乗った人</span><input id="riders" placeholder="B D"></div>
-    <div class="role"><span class="r-s">単独</span><input id="solo" placeholder="E F"></div>
+    <div class="role"><span class="r-d">車出し</span><input id="drivers"></div>
+    <div class="role"><span class="r-r">乗った人</span><input id="riders"></div>
+    <div class="role"><span class="r-s">単独</span><input id="solo"></div>
     <p class="hint">家庭名はスペースか「、」で区切ります。単独の家庭は差し入れ・お茶代だけを負担します。</p>
   </div>
   <div id="splitRoles" hidden>
     <div class="legh">往路</div>
-    <div class="role"><span class="r-d">車出し</span><input id="outDrivers" placeholder="A C"></div>
-    <div class="role"><span class="r-r">乗った人</span><input id="outRiders" placeholder="B D"></div>
+    <div class="role"><span class="r-d">車出し</span><input id="outDrivers"></div>
+    <div class="role"><span class="r-r">乗った人</span><input id="outRiders"></div>
     <div class="legh">復路<button type="button" class="mini" id="btnCopyLeg">往路と同じにする</button></div>
-    <div class="role"><span class="r-d">車出し</span><input id="retDrivers" placeholder="A C G"></div>
-    <div class="role"><span class="r-r">乗った人</span><input id="retRiders" placeholder="B E"></div>
+    <div class="role"><span class="r-d">車出し</span><input id="retDrivers"></div>
+    <div class="role"><span class="r-r">乗った人</span><input id="retRiders"></div>
     <div class="legh">往復とも車を使わなかった家庭</div>
-    <div class="role"><span class="r-s">単独</span><input id="none" placeholder="F"></div>
+    <div class="role"><span class="r-s">単独</span><input id="none"></div>
     <p class="hint">片道だけ車を使った家庭は、その便にだけ入れます。入っていない便は自己負担（単独）として扱い、その便の車代は負担しません。誰も乗せずに走った車は、その便の車出しに入れないでください（その片道は自己負担）。</p>
     <div id="moveTable"></div>
   </div>
@@ -199,7 +199,11 @@ button.mini{font-size:12px;padding:4px 10px}
     </div>
     <div class="row">
       <div><label for="defPark2">駐車場（合計）</label><div class="unit" data-u="円"><input id="defPark2" type="number" inputmode="numeric" min="0" placeholder="0"></div></div>
-      <div></div>
+      <div><label for="carRound">1台あたりの端数</label><select id="carRound">
+        <option value="100">100円単位で切り上げ</option>
+        <option value="10">10円単位で切り上げ</option>
+        <option value="1">切り上げない</option>
+      </select></div>
     </div>
     <div class="calcout" id="gasOut"></div>
   </div>
@@ -254,11 +258,11 @@ button.mini{font-size:12px;padding:4px 10px}
 <div id="report" aria-hidden="true"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
-const TXT=["date","event","place","drivers","riders","solo","outDrivers","outRiders","retDrivers","retRiders","none","defCar","defPark","km","trip","nenpi","gas","toll","note"];
+const TXT=["carRound","date","event","place","drivers","riders","solo","outDrivers","outRiders","retDrivers","retRiders","none","defCar","defPark","km","trip","nenpi","gas","toll","note"];
 const SPLIT_F=["outDrivers","outRiders","retDrivers","retRiders","none"];
 const SONOTA="その他",EPS=1e-6,BAD_NAME="__proto__";
-const newState=()=>({carMode:"direct",trip:"round",nenpi:"9",twoCar:false,split:false,parkVer:2,cars:{},done:{},
-  items:[{name:"差し入れ",price:"",payer:""}]});
+const newState=()=>({carMode:"direct",trip:"round",nenpi:"9",carRound:"100",twoCar:false,split:false,parkVer:2,cars:{},done:{},
+  items:[{name:"",price:"",payer:""}]});
 let st=newState();
 
 const $=id=>document.getElementById(id);
@@ -288,6 +292,7 @@ function writeForm(){
   TXT.forEach(f=>$(f).value=st[f]??"");
   if(!st.nenpi) $("nenpi").value="9";
   if(!st.trip) $("trip").value="round";
+  if(!st.carRound) $("carRound").value="100";
   $("defPark2").value=st.defPark??"";
   document.querySelectorAll('input[name="carMode"]').forEach(r=>r.checked=r.value===(st.carMode||"direct"));
   $("twoCar").checked=!!st.twoCar;
@@ -304,6 +309,7 @@ function migrate(d){  // 読み込んだ生データをそのまま渡すこと�
     if(d.parking) Object.entries(d.parking).forEach(([n,v])=>{(d.cars[n]=d.cars[n]||{}).park=v});
     if(!d.items.length) d.items=newState().items;}
   d.carMode=d.carMode||"direct";
+  d.carRound=["1","10","100"].includes(String(d.carRound))?String(d.carRound):"100";
   d.split=!!d.split;
   if(d.parkVer!==2){  // 駐車場は「全台の合計」を1つ入力する方式に変更
     const nm=f=>(d[f]||"").split(/[\s,、，・\/]+/).map(x=>x.trim()).filter(Boolean);
@@ -342,7 +348,9 @@ function legsEqual(){
 function baseCar(){
   if(st.carMode==="gas"){
     const mul=st.trip==="oneway"?2:1, km=num(st.km)*mul, nen=num(st.nenpi)||9;
-    return Math.round(km/nen*num(st.gas))+num(st.toll)*mul; // ガソリン代は1円単位に丸め、高速代を足す
+    const raw=Math.round(km/nen*num(st.gas))+num(st.toll)*mul; // ガソリン代は1円単位に丸め、高速代を足す
+    const u=Number(st.carRound)||1;
+    return Math.ceil((raw-EPS)/u)*u;  // 1台あたりを切り上げ（例：2,304円 → 2,400円）
   }
   return num(st.defCar);
 }
@@ -491,7 +499,7 @@ function payerOptions(cur){
 }
 function buildItems(){
   $("itemList").innerHTML=st.items.map((it,i)=>`<div class="item">
-    <div><label>品目</label><input data-k="item:${i}:name" value="${esc(it.name)}" placeholder="差し入れ"></div>
+    <div><label>品目</label><input data-k="item:${i}:name" value="${esc(it.name)}"></div>
     <div><label>値段</label><div class="unit" data-u="円"><input type="number" inputmode="numeric" min="0" data-k="item:${i}:price" value="${esc(it.price)}" placeholder="0"></div></div>
     <div><label>立て替えた人</label><select data-k="item:${i}:payer">${payerOptions(it.payer)}</select></div>
     <button type="button" data-delitem="${i}" aria-label="${esc(it.name||"品目")}を削除">×</button></div>`).join("");
@@ -570,6 +578,11 @@ function card(x,r){
 
 /* ---------- 描画 ---------- */
 function tollMul(){return st.trip==="oneway"?2:1;}
+function carRaw(){ // 切り上げ前の1台あたり
+  const mul=tollMul();
+  return Math.round(num(st.km)*mul/(num(st.nenpi)||9)*num(st.gas))+num(st.toll)*mul;
+}
+function roundNote(){const u=Number(st.carRound)||1;return u>1&&Math.abs(carRaw()-baseCar())>EPS?`${u}円単位に切り上げ`:"";}
 function gasFormula(){
   const f=`${yen(num(st.km)*tollMul())}km ÷ ${yen(num(st.nenpi)||9)}km/L × ${yen(num(st.gas))}円`;
   return num(st.toll)?`${f} ＋ 高速代 ${yen(num(st.toll))}円${tollMul()===2?"×2":""}`:f;
@@ -582,7 +595,7 @@ function render(){
   if(document.activeElement===$("defPark2")) {$("defPark").value=$("defPark2").value;st.defPark=$("defPark2").value;} else $("defPark2").value=st.defPark;
   const r=calc();
   $("lblToll").textContent=st.trip==="oneway"?"高速代（1台・片道）":"高速代（1台・往復）";
-  $("gasOut").innerHTML=st.carMode==="gas"?`${gasFormula()} ＝ 1台あたり <b>${yen(r.base)}円</b>（ガソリン代は1円未満四捨五入）${st.split?`／片道 <b>${yen(r.base/2)}円</b>`:""}`:"";
+  $("gasOut").innerHTML=st.carMode==="gas"?`${gasFormula()} ＝ ${roundNote()?`${yen(carRaw())}円 → ${roundNote()}て `:""}1台あたり <b>${yen(r.base)}円</b>${st.split?`／片道 <b>${yen(r.base/2)}円</b>`:""}`:"";
   buildDrivers(r); refreshPayers();
   $("moveTable").innerHTML=moveTable(r);
 
@@ -636,7 +649,7 @@ function lineText(){
     L.push(`往復とも車を使わなかった家庭：${r.extras.join("・")||"なし"}`);
   }
   L.push("","■車代・駐車場");
-  if(st.carMode==="gas") L.push(`車代の計算：${gasFormula()}＝1台 ${Y(r.base)}${r.split?`（片道 ${Y(r.base/2)}）`:""}`);
+  if(st.carMode==="gas") L.push(`車代の計算：${gasFormula()}${roundNote()?` ＝ ${Y(carRaw())} → ${roundNote()}`:""}＝1台 ${Y(r.base)}${r.split?`（片道 ${Y(r.base/2)}）`:""}`);
   else if(r.split) L.push(`車代：1台 往復 ${Y(r.base)}（片道 ${Y(r.base/2)}）`);
   if(!r.split){
     const diff=r.cars.filter(c=>Math.abs(c.carPer-r.base)>EPS);
@@ -805,7 +818,7 @@ function buildReport(r){
   const its=r.items.filter(i=>i.price);
   const recvCell=x=>x.recv?(r.floorAll?"※":"")+Y(x.recv):"";
   const methodTxt=st.carMode==="gas"
-    ?`距離から計算：${yen(num(st.km)*tollMul())}km（${st.trip==="oneway"?"片道×2":"往復"}）÷ 燃費 ${yen(num(st.nenpi)||9)}km/L × ガソリン代 ${yen(num(st.gas))}円/L${num(st.toll)?` ＋ 高速代 ${yen(num(st.toll))}円${tollMul()===2?"（片道）×2":"（往復）"}`:""} ＝ 1台 ${r.split?"往復 ":""}${Y(r.base)}`
+    ?`距離から計算：${yen(num(st.km)*tollMul())}km（${st.trip==="oneway"?"片道×2":"往復"}）÷ 燃費 ${yen(num(st.nenpi)||9)}km/L × ガソリン代 ${yen(num(st.gas))}円/L${num(st.toll)?` ＋ 高速代 ${yen(num(st.toll))}円${tollMul()===2?"（片道）×2":"（往復）"}`:""}${roundNote()?` ＝ ${Y(carRaw())} → ${roundNote()}`:""} ＝ 1台 ${r.split?"往復 ":""}${Y(r.base)}`
     :`直接入力：1台 ${r.split?"往復 ":""}${Y(r.base)}`;
 
   let h=`<div class="pg-top"></div>
