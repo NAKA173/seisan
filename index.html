@@ -139,6 +139,9 @@ button.mini{font-size:12px;padding:4px 10px}
 .drv2-head small{color:var(--mute);font-size:12px}
 .drv2-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;align-items:end}
 .drv2-grid label{margin:0 0 2px;font-size:11px}
+.chk-sm{display:flex;align-items:center;gap:8px;margin:8px 0 0;font-size:13px;color:var(--sumi)}
+.chk-sm input{width:18px;height:18px;margin:0;flex:none}
+.chk-sm small{color:var(--mute);font-size:11px}
 .drv2-grid .na{font-size:12px;color:var(--mute);padding:0 0 10px}
 #report h3{font-size:12px;margin:10px 0 4px;color:#111}
 #report .sm{font-size:9.5px;color:#555;line-height:1.35}
@@ -355,7 +358,7 @@ function legsEqual(){
   const S=a=>uniqArr(parseNames(a)).sort().join("|");
   if(S(st.outDrivers)!==S(st.retDrivers)||S(st.outRiders)!==S(st.retRiders)) return false;
   return uniqArr(parseNames(st.outDrivers)).every(n=>{const o=carOf(n);
-    return (!st.twoCar||(Number(o.outCount)===2)===(Number(o.retCount)===2))&&String(o.outCar??"")===String(o.retCar??"");});
+    return (!st.twoCar||(Number(o.outCount)===2)===(Number(o.retCount)===2))&&String(o.outCar??"")===String(o.retCar??"")&&(o.outOnly===true)===(o.retOnly===true);});
 }
 
 /* ---------- 計算 ---------- */
@@ -373,7 +376,12 @@ function calc(){
   // 便ごとの車代：その便の車代合計 ÷ その便で車を使った家庭数（車出し込み）
   const legs=legList().map(l=>{
     const drivers=uniqArr(l.rawD), riders=uniqArr(l.rawR).filter(n=>!drivers.includes(n));
-    const users=[...drivers,...riders];
+    const onlyKey=l.key==="both"?"only":l.key+"Only";      // 車は出すが自分の子は乗らない
+    const carOnly=drivers.filter(n=>carOf(n)[onlyKey]===true);
+    const riding=drivers.filter(n=>!carOnly.includes(n));
+    // 誰の子も乗らない便は割り当て先がないので、例外として車出しどうしで割る
+    const noRider=!riding.length&&!riders.length&&drivers.length>0;
+    const users=noRider?[...drivers]:[...riding,...riders];
     const cars=drivers.map(n=>{
       const o=carOf(n); let count,carPer;
       if(l.key==="both"){count=st.twoCar&&Number(o.count)===2?2:1; carPer=has(o.car)?num(o.car):base;}
@@ -381,11 +389,15 @@ function calc(){
       return {name:n,count,carPer,cost:carPer*count};
     });
     const total=sum(cars,c=>c.cost), carCount=sum(cars,c=>c.count);
-    return {key:l.key,label:l.label,drivers,riders,users,cars,total,carCount,share:users.length?total/users.length:0};
+    return {key:l.key,label:l.label,drivers,riders,carOnly,noRider,users,cars,total,carCount,share:users.length?total/users.length:0};
   });
-  const legMembers=uniqArr(legs.flatMap(l=>l.users));
-  const extras=uniqArr(parseNames(st.split?st.none:st.solo)).filter(n=>!legMembers.includes(n));
-  const all=[...legMembers,...extras];
+  const legMembers=uniqArr(legs.flatMap(l=>l.users));                       // 車代・駐車場を負担する家庭
+  const legFamilies=uniqArr(legs.flatMap(l=>[...l.drivers,...l.riders]));   // 車に関わった家庭（車のみの家庭も含む）
+  const extras=uniqArr(parseNames(st.split?st.none:st.solo)).filter(n=>!legFamilies.includes(n));
+  const all=[...legFamilies,...extras];
+  // どの便でも車代を負担しない家庭（＝立て替えの返却のみ）。差し入れ等も負担しない
+  const refundOnly=legFamilies.filter(n=>!legMembers.includes(n));
+  const othBearers=[...legMembers,...extras];
   // 駐車場：全台の合計を1つ入力。立て替えは台数で按分して車出しに返し、負担は車を使った家庭で割る
   const parkDrivers=uniqArr(legs.flatMap(l=>l.drivers));
   const parkCounts=parkDrivers.map(n=>Math.max(...legs.map(l=>{const c=l.cars.find(c=>c.name===n);return c?c.count:0;})));
@@ -404,22 +416,22 @@ function calc(){
     if(it.payer&&adv[it.payer]) adv[it.payer].items.push(it);
     else{const k=it.payer||"（立替者未選択）";(outside[k]=outside[k]||[]).push(it);} });
   const itemTotal=sum(items,i=>i.price);
-  const othExact=all.length?itemTotal/all.length:0;
+  const othExact=othBearers.length?itemTotal/othBearers.length:0;
 
   const rows=all.map(name=>{
     const a=adv[name], itemSum=sum(a.items,i=>i.price);
     const legRole={},legShare={},counts={};
     legs.forEach(l=>{
-      legRole[l.key]=l.drivers.includes(name)?"d":l.riders.includes(name)?"r":"";
+      legRole[l.key]=l.drivers.includes(name)?(l.carOnly.includes(name)?"o":"d"):l.riders.includes(name)?"r":"";
       legShare[l.key]=l.users.includes(name)?l.share:0;
       const c=l.cars.find(c=>c.name===name); counts[l.key]=c?c.count:0;
     });
     const fPark=parkUsers.includes(name)?parkShare:0;
     const fCar=sum(legs,l=>legShare[l.key])+fPark;
-    const tate=a.car+a.park+itemSum, fOth=othExact, futan=fCar+fOth, net=tate-futan;
+    const tate=a.car+a.park+itemSum, fOth=othBearers.includes(name)?othExact:0, futan=fCar+fOth, net=tate-futan;
     let role;
-    if(!st.split) role=legRole.both==="d"?"車出し":legRole.both==="r"?"乗った人":"単独";
-    else role=legs.map(l=>`${l.label[0]} ${legRole[l.key]==="d"?"車出し"+(counts[l.key]===2?"(2台)":""):legRole[l.key]==="r"?"同乗":"なし"}`).join("・");
+    if(!st.split) role=legRole.both==="d"?"車出し":legRole.both==="o"?"車出し（返却のみ）":legRole.both==="r"?"乗った人":"単独";
+    else role=legs.map(l=>`${l.label[0]} ${legRole[l.key]==="d"||legRole[l.key]==="o"?"車出し"+(counts[l.key]===2?"(2台)":"")+(legRole[l.key]==="o"?"(子なし)":""):legRole[l.key]==="r"?"同乗":"なし"}`).join("・");
     return {name,role,legRole,legShare,counts,count:st.split?0:counts.both,a,itemSum,tate,fCar,fPark,fOth,futan,net,pay:net<-EPS?ceil10(-net):0,recv:0};
   });
   const outRows=Object.keys(outside).map(name=>{const its=outside[name],s=sum(its,i=>i.price);return {name,items:its,tate:s,net:s,recv:0,pay:0};});
@@ -436,7 +448,7 @@ function calc(){
   }
   const sumTate=sum(rows,x=>x.tate)+sum(outRows,x=>x.tate);
   const L0=legs[0];
-  return {split:st.split,legs,legMembers,extras,all,base,park0,parkCars,parkCarCount,parkUsers,parkShare,parkTotal,carTotal,n,
+  return {split:st.split,legs,legMembers,extras,all,refundOnly,othBearers,base,park0,parkCars,parkCarCount,parkUsers,parkShare,parkTotal,carTotal,n,
     drivers:st.split?parkDrivers:L0.drivers, riders:st.split?uniqArr(legs.flatMap(l=>l.riders)):L0.riders, solo:extras, users:legMembers,
     cars:st.split?[]:L0.cars.map(c=>({...c,parkCost:(parkCars.find(p=>p.name===c.name)||{}).cost||0})),
     carCount:st.split?0:L0.carCount, carExact:st.split?0:(L0.users.length?L0.share+parkShare:0),
@@ -456,6 +468,7 @@ function checks(r){
     else push("warn","参加家庭がまだ入力されていません。");
     if(r.riders.length&&!r.drivers.length) push("ng","「乗った人」がいるのに「車出し」がいません。");
     if(r.drivers.length&&!r.riders.length) push("warn","乗った人がいないので、車代は車出し家庭どうしで割っています。");
+    if(r.refundOnly.length) push("ok",`${r.refundOnly.join("、")} は自分の子が乗っていないため負担は0で、立て替えた分だけが返ります（車代・駐車場・差し入れ等のいずれも負担しません）。車の台数には数えています。`);
     const two=r.cars.filter(c=>c.count===2).map(c=>c.name);
     if(two.length) push("ok",`${two.join("、")} は2台出しなので、車代と駐車場を2台分立て替えた扱いにしています。ただし車代を割るときは1家庭として数えます（車は全部で ${r.carCount}台）。`);
   }else{
@@ -473,17 +486,21 @@ function checks(r){
     if(!r.all.length) push("warn","参加家庭がまだ入力されていません。");
     else if(!dupFound) push("ok",`参加 ${r.all.length}家庭（往路 ${O.users.length}家庭・${O.carCount}台、復路 ${T.users.length}家庭・${T.carCount}台、往復とも車を使わなかった家庭 ${r.extras.length}）で、重複はありません。`);
     r.legs.forEach(l=>{
+      if(l.carOnly.length) push("ok",`${l.label}で ${l.carOnly.join("、")} は自分の子が乗っていないため、その便の車代負担は0です。`);
       if(l.riders.length&&!l.drivers.length) push("ng",`${l.label}に乗った人がいるのに、車出しがいません。`);
-      else if(l.drivers.length&&l.carCount>l.riders.length) push("warn",`${l.label}は車 ${l.carCount}台に対して、乗った家庭が ${l.riders.length}家庭です。誰も乗せずに走った車があれば、その家庭は${l.label}の車出しから外してください（その片道は自己負担になります）。`);
+      else if(l.drivers.length&&l.carCount>l.users.length) push("warn",`${l.label}は車 ${l.carCount}台に対して、車を使った家庭が ${l.users.length}家庭です。自分の子が乗っていない車があれば「自分の子は乗っていない」にチェックを入れてください。`);
     });
     const onlyO=O.users.filter(n=>!T.users.includes(n)), onlyT=T.users.filter(n=>!O.users.includes(n));
     if(onlyO.length||onlyT.length) push("warn",`片道だけ車を使った家庭：${[...onlyO.map(n=>n+"（往路のみ）"),...onlyT.map(n=>n+"（復路のみ）")].join("、")}。反対の便は自己負担として扱い、その便の車代は負担しません。`);
+    if(r.refundOnly.length) push("ok",`${r.refundOnly.join("、")} は往復とも負担が0なので、差し入れ等も負担しません（立て替えた分だけが返ります）。`);
     if(r.all.length&&legsEqual()) push("ok","往路と復路が同じ内容なので、区別なしで入力した場合と同じ結果になります。");
     const two=r.legs.flatMap(l=>l.cars.filter(c=>c.count===2).map(c=>`${c.name}（${l.label}）`));
     if(two.length) push("ok",`2台出し：${two.join("、")}。立て替えは2台分、割るときは1家庭として数えます。`);
   }
   if(st.carMode==="gas"&&r.parkCars.length&&(!num(st.km)||!num(st.gas))) push("warn","距離から計算するには、距離とガソリン代の両方を入れてください。");
   if(r.parkCars.length&&r.n===0) push("warn","車出しがいますが、車代と駐車場が0円です。");
+  r.legs.filter(l=>l.noRider).forEach(l=>push("warn",`${l.label?l.label+"は":""}どの家庭の子も車に乗っていないため、${l.label?"その便の":""}車代を車出しの家庭どうしで割っています。乗った家庭の入力を確認してください。`));
+  if(r.itemTotal>0&&!r.othBearers.length) push("ng","差し入れ等を負担する家庭がいません（全員が「自分の子は乗っていない」になっています）。立て替えた分を返せないので、入力を確認してください。");
   if(!r.parkCars.length&&park0()>0) push("warn","駐車場代が入っていますが、車出しの家庭がいないため計算に入れていません。");
   r.items.forEach(it=>{
     if(!it.price) return;
@@ -525,16 +542,16 @@ function refreshPayers(){
   });
 }
 const yenIn=(k,ph,val,label)=>`<div><label>${label}</label><div class="unit" data-u="円"><input type="number" inputmode="numeric" min="0" data-k="${esc(k)}" placeholder="${yen(ph)}" value="${esc(val)}"></div></div>`;
+const onlyChk=(k,v,label)=>`<label class="chk-sm"><input type="checkbox" data-k="${esc(k)}"${v===true?" checked":""}>${label}<small>車代・駐車場・差し入れ等の負担なし</small></label>`;
 const cntSel=(k,v,label)=>`<div><label>${label}</label><select data-k="${esc(k)}"><option value="1"${Number(v)===2?"":" selected"}>1台</option><option value="2"${Number(v)===2?" selected":""}>2台</option></select></div>`;
 function buildDrivers(r){
   const sig=[st.split,r.legs.map(l=>l.drivers.join("|")).join("/"),st.twoCar,Math.round(r.base*10),st.carMode].join("/");
   if($("drvList").dataset.sig===sig) return; $("drvList").dataset.sig=sig;
   if(!r.parkCars.length){$("drvList").innerHTML=`<p class="hint">車出しの家庭を入力すると、ここに車ごとの欄が出ます。</p>`;return;}
   if(!st.split){
-    $("drvList").innerHTML=r.drivers.map(n=>{const o=carOf(n);return `<div class="drv${st.twoCar?" two":""}"><b>${esc(n)}</b>
-      ${st.twoCar?cntSel(`car:${n}:count`,o.count,"台数"):""}
-      ${yenIn(`car:${n}:car`,r.base,o.car,"車代（1台）")}
-      </div>`}).join("");
+    $("drvList").innerHTML=r.drivers.map(n=>{const o=carOf(n);return `<div class="drv2"><div class="drv2-head"><b>${esc(n)}</b></div>
+      <div class="drv2-grid">${st.twoCar?cntSel(`car:${n}:count`,o.count,"台数"):""}${yenIn(`car:${n}:car`,r.base,o.car,"車代（1台）")}<div></div></div>
+      ${onlyChk(`car:${n}:only`,o.only,"自分の子は乗っていない（立て替えの返却のみ）")}</div>`}).join("");
     return;
   }
   $("drvList").innerHTML=r.parkCars.map(({name:n})=>{
@@ -543,12 +560,14 @@ function buildDrivers(r){
     const cnt=(k,lab)=>inL(k)?cntSel(`car:${n}:${k}Count`,o[k+"Count"],`${lab} 台数`):`<div></div>`;
     return `<div class="drv2"><div class="drv2-head"><b>${esc(n)}</b><small>往路 ${inL("out")?"車出し":"なし"}／復路 ${inL("ret")?"車出し":"なし"}</small></div>
       <div class="drv2-grid">${leg("out","往路")}${leg("ret","復路")}</div>
-      ${st.twoCar?`<div class="drv2-grid">${cnt("out","往路")}${cnt("ret","復路")}<div></div></div>`:""}</div>`;
+      ${st.twoCar?`<div class="drv2-grid">${cnt("out","往路")}${cnt("ret","復路")}<div></div></div>`:""}
+      ${inL("out")?onlyChk(`car:${n}:outOnly`,o.outOnly,"往路：自分の子は乗っていない（負担なし）"):""}
+      ${inL("ret")?onlyChk(`car:${n}:retOnly`,o.retOnly,"復路：自分の子は乗っていない（負担なし）"):""}</div>`;
   }).join("");
 }
 function moveTable(r){
   if(!r.split||!r.all.length) return "";
-  const R=(x,c)=>x==="d"?`<span class="d">車出し${c===2?"（2台）":""}</span>`:x==="r"?`<span class="r">同乗</span>`:`<span class="x">—</span>`;
+  const R=(x,c)=>x==="d"||x==="o"?`<span class="d">車出し${c===2?"（2台）":""}${x==="o"?"<br><small>返却のみ</small>":""}</span>`:x==="r"?`<span class="r">同乗</span>`:`<span class="x">—</span>`;
   return `<table class="move"><tr><th>家庭</th><th>往路</th><th>復路</th></tr>${r.rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${R(x.legRole.out,x.counts.out)}</td><td>${R(x.legRole.ret,x.counts.ret)}</td></tr>`).join("")}</table>`;
 }
 function breakdownTate(x,r){
@@ -617,9 +636,9 @@ function render(){
     $("kubunTitle").textContent="4区分";
     $("kubun").innerHTML=`
     <div><small>立替分（車出し）</small><strong>${yen(r.n)}円</strong><em>車代 ${yen(r.carTotal)}円＋駐車場 ${yen(r.parkTotal)}円（${r.carCount}台）</em></div>
-    <div><small>徴収分（車を使った1家庭）</small><strong>${yen(r.carExact)}円</strong><em>${yen(r.n)}円 ÷ ${r.users.length}家庭（車出し込み）</em></div>
+    <div><small>徴収分（車を使った1家庭）</small><strong>${yen(r.carExact)}円</strong><em>${yen(r.n)}円 ÷ ${r.users.length}家庭（車出し込み${r.legs[0].carOnly.length?"、返却のみを除く":""}）</em></div>
     <div><small>差し入れのみ（単独1家庭）</small><strong>${yen(r.othExact)}円</strong><em>単独 ${r.solo.length}家庭</em></div>
-    <div><small>差し入れ代・お茶代</small><strong>${yen(r.itemTotal)}円</strong><em>${yen(r.itemTotal)}円 ÷ ${r.all.length}家庭 ＝ ${yen(r.othExact)}円</em></div>`;
+    <div><small>差し入れ代・お茶代</small><strong>${yen(r.itemTotal)}円</strong><em>${yen(r.itemTotal)}円 ÷ ${r.othBearers.length}家庭${r.refundOnly.length?"（返却のみを除く）":""} ＝ ${yen(r.othExact)}円</em></div>`;
   }else{
     const [O,T]=r.legs;
     $("kubunTitle").textContent="区分ごとの金額";
@@ -629,7 +648,7 @@ function render(){
     <div><small>復路（片道・1家庭）</small><strong>${yen(T.share)}円</strong><em>${yen(T.total)}円 ÷ ${T.users.length}家庭（${T.carCount}台）</em></div>
     <div><small>駐車場（1家庭）</small><strong>${yen(r.parkShare)}円</strong><em>${yen(r.parkTotal)}円 ÷ ${r.parkUsers.length}家庭（往路か復路で車を使った家庭）</em></div>
     <div><small>差し入れのみ（車なし1家庭）</small><strong>${yen(r.othExact)}円</strong><em>往復とも車を使わなかった家庭 ${r.extras.length}</em></div>
-    <div><small>差し入れ代・お茶代</small><strong>${yen(r.itemTotal)}円</strong><em>${yen(r.itemTotal)}円 ÷ ${r.all.length}家庭 ＝ ${yen(r.othExact)}円</em></div>`;
+    <div><small>差し入れ代・お茶代</small><strong>${yen(r.itemTotal)}円</strong><em>${yen(r.itemTotal)}円 ÷ ${r.othBearers.length}家庭${r.refundOnly.length?"（返却のみを除く）":""} ＝ ${yen(r.othExact)}円</em></div>`;
   }
 
   const P=r.rows.filter(x=>x.pay), R=r.rows.filter(x=>x.recv), Z=r.rows.filter(x=>!x.pay&&!x.recv);
@@ -652,7 +671,7 @@ function render(){
 function lineText(){
   const r=render(), L=[], Y=v=>yen(v)+"円";
   L.push(`【遠征費精算】${st.date?st.date.replace(/-/g,"/"):""} ${st.event||""}${st.place?`（${st.place}）`:""}`.trim());
-  const nm=(a,leg)=>a.length?a.map(n=>{const c=leg?leg.cars.find(c=>c.name===n):r.cars.find(c=>c.name===n);return n+(c&&c.count===2?"(2台)":"")}).join("・"):"なし";
+  const nm=(a,leg)=>a.length?a.map(n=>{const L=leg||r.legs[0],c=L.cars.find(c=>c.name===n);return n+(c&&c.count===2?"(2台)":"")+(L.carOnly.includes(n)?"(返却のみ)":"")}).join("・"):"なし";
   L.push("","■参加家庭");
   if(!r.split){
     L.push(`車出し：${nm(r.drivers)}`);
@@ -669,7 +688,7 @@ function lineText(){
     const diff=r.cars.filter(c=>Math.abs(c.carPer-r.base)>EPS);
     if(diff.length) L.push(`車代が違う車：${diff.map(c=>`${c.name} 1台 ${Y(c.carPer)}`).join("、")}`);
     L.push(`車代 ${Y(r.carTotal)}（${r.carCount}台）＋駐車場 ${Y(r.parkTotal)} ＝ ${Y(r.n)}`);
-    if(r.users.length) L.push(`→ 車を使った${r.users.length}家庭（車出し込み）で割って 1家庭 ${Y(r.carExact)}`);
+    if(r.users.length) L.push(`→ 車を使った${r.users.length}家庭（車出し込み${r.legs[0].carOnly.length?`、返却のみの ${r.legs[0].carOnly.join("・")} を除く`:""}）で割って 1家庭 ${Y(r.carExact)}`);
   }else{
     r.legs.forEach(l=>{
       const diff=l.cars.filter(c=>Math.abs(c.carPer-r.base/2)>EPS);
@@ -681,7 +700,7 @@ function lineText(){
   if(its.length){
     L.push("","■お茶代・差し入れ代等");
     its.forEach(i=>L.push(`${i.name} ${Y(i.price)}（立替 ${i.payer||"未選択"}）`));
-    L.push(`合計 ${Y(r.itemTotal)} ÷ 参加${r.all.length}家庭 ＝ 1家庭 ${Y(r.othExact)}`);
+    L.push(`合計 ${Y(r.itemTotal)} ÷ ${r.othBearers.length}家庭${r.refundOnly.length?`（返却のみの ${r.refundOnly.join("・")} を除く）`:""} ＝ 1家庭 ${Y(r.othExact)}`);
   }
   const T=[...r.rows.filter(x=>x.tate>EPS),...r.outRows];
   if(T.length){
@@ -768,6 +787,7 @@ function toggleSplit(on){
       st.outDrivers=st.retDrivers=st.drivers; st.outRiders=st.retRiders=st.riders; st.none=st.solo;
       uniqArr(parseNames(st.drivers)).forEach(n=>{const o=carEdit(n); if(!o) return;
         o.outCount=o.retCount=Number(o.count)===2?"2":"1";
+        if(o.only===true) o.outOnly=o.retOnly=true; else {delete o.outOnly;delete o.retOnly;}
         if(has(o.car)){o.outCar=o.retCar=String(num(o.car)/2);} else {delete o.outCar;delete o.retCar;}});
       if(familyNames().length) toast("今の入力を往路・復路の両方にコピーしました");
     }
@@ -776,6 +796,7 @@ function toggleSplit(on){
       st.drivers=st.outDrivers; st.riders=st.outRiders; st.solo=st.none;
       uniqArr(parseNames(st.outDrivers)).forEach(n=>{const o=carEdit(n); if(!o) return;
         o.count=Number(o.outCount)===2?"2":"1";
+        if(o.outOnly===true) o.only=true; else delete o.only;
         if(has(o.outCar)) o.car=String(num(o.outCar)*2); else delete o.car;});
     }else if(!confirm("往路と復路で内容が違います。\n区別なしに戻すと、往路・復路モードにする前の入力で計算します（往路・復路の入力は残るので、もう一度チェックを入れると戻せます）。\n戻しますか？")){
       $("split").checked=true; st.split=true; render(); return;
@@ -792,7 +813,7 @@ function onField(e){
   if(k){
     const i1=k.indexOf(":"), type=k.slice(0,i1), rest=k.slice(i1+1);
     if(type==="item"){const [i,f]=rest.split(":"); if(st.items[Number(i)]) st.items[Number(i)][f]=t.value;}
-    else if(type==="car"){const i2=rest.lastIndexOf(":"), n=rest.slice(0,i2), f=rest.slice(i2+1), o=carEdit(n); if(o) o[f]=t.value;}
+    else if(type==="car"){const i2=rest.lastIndexOf(":"), n=rest.slice(0,i2), f=rest.slice(i2+1), o=carEdit(n); if(o) o[f]=t.type==="checkbox"?t.checked:t.value;}
     else if(type==="done"){if(rest!==BAD_NAME) st.done[rest]=t.checked;}
   }
   if(t.id==="defPark2") $("defPark").value=t.value;
@@ -804,7 +825,8 @@ $("btnCopyLeg").onclick=()=>{
   readForm(); st.retDrivers=st.outDrivers; st.retRiders=st.outRiders;
   uniqArr(parseNames(st.outDrivers)).forEach(n=>{const o=carEdit(n); if(!o) return;
     if(has(o.outCount)) o.retCount=o.outCount; else delete o.retCount;
-    if(has(o.outCar)) o.retCar=o.outCar; else delete o.retCar;});
+    if(has(o.outCar)) o.retCar=o.outCar; else delete o.retCar;
+    if(o.outOnly===true) o.retOnly=true; else delete o.retOnly;});
   writeForm(); render(); toast("復路を往路と同じにしました");
 };
 $("btnAddItem").onclick=()=>{st.items.push({name:"",price:"",payer:""});buildItems();render();const ins=$("itemList").querySelectorAll('input[data-k$=":name"]');ins[ins.length-1].focus();};
@@ -840,7 +862,7 @@ function buildReport(r){
   <table class="info"><tr><th>日時</th><td>${E(d)}</td></tr><tr><th>大会名</th><td>${E(st.event||"")}</td></tr><tr><th>場所</th><td>${E(st.place||"")}</td></tr></table></div>`;
 
   if(!r.split){
-    const roleList=(arr,withCnt)=>arr.length?arr.map(n=>{const c=r.cars.find(x=>x.name===n);return E(n)+(withCnt&&c&&c.count===2?"（2台）":"")}).join("、"):"なし";
+    const roleList=(arr,withCnt)=>arr.length?arr.map(n=>{const c=r.cars.find(x=>x.name===n);return E(n)+(withCnt&&c&&c.count===2?"（2台）":"")+(withCnt&&r.legs[0].carOnly.includes(n)?"（返却のみ）":"")}).join("、"):"なし";
     h+=`<div class="blk"><h2>1. 参加家庭</h2>
     <table><tr><th>車出し</th><td>${roleList(r.drivers,true)}</td><td class="n">${r.drivers.length}家庭・${r.carCount}台</td></tr>
     <tr><th>乗った人</th><td>${roleList(r.riders)}</td><td class="n">${r.riders.length}家庭</td></tr>
@@ -850,11 +872,11 @@ function buildReport(r){
     <div class="blk"><table><tr><th>車出し</th><th class="c">台数</th><th class="n">車代（1台）</th><th class="n">駐車場</th><th class="n">立替額</th></tr>
     ${r.cars.map(c=>`<tr><td>${E(c.name)}</td><td class="c">${c.count}</td><td class="n">${Y(c.carPer)}</td><td class="n">${Y(c.parkCost)}</td><td class="n">${Y(c.carPer*c.count+c.parkCost)}</td></tr>`).join("")||`<tr><td colspan="5">なし</td></tr>`}
     <tr class="sum"><td>合計</td><td class="c">${r.carCount}台</td><td class="n" colspan="2">車代 ${Y(r.carTotal)} ＋ 駐車場 ${Y(r.parkTotal)}</td><td class="n">${Y(r.n)}</td></tr></table>
-    <p class="formula">車を使った家庭（車出し込み）${r.users.length}家庭で割る：${div(r.n,r.users.length)}</p></div>`;
+    <p class="formula">車を使った家庭（車出し込み${r.legs[0].carOnly.length?`、返却のみの ${r.legs[0].carOnly.join("・")} を除く`:""}）${r.users.length}家庭で割る：${div(r.n,r.users.length)}</p></div>`;
   }else{
     const [O,T]=r.legs;
-    const RL=(x,c)=>x==="d"?`車出し${c===2?"（2台）":""}`:x==="r"?"同乗":"—";
-    const rank=x=>Math.min(...["out","ret"].map(k=>x.legRole[k]==="d"?0:x.legRole[k]==="r"?1:2));
+    const RL=(x,c)=>x==="d"||x==="o"?`車出し${c===2?"（2台）":""}${x==="o"?"・返却のみ":""}`:x==="r"?"同乗":"—";
+    const rank=x=>Math.min(...["out","ret"].map(k=>x.legRole[k]==="d"?0:x.legRole[k]==="o"?1:x.legRole[k]==="r"?2:3));
     const MC=colg([30,35,35]);
     h+=`<div class="blk"><h2>1. 参加家庭と移動</h2></div>`+head(MC,`<th>家庭</th><th>往路</th><th>復路</th>`);
     [...r.rows].sort((a,b)=>rank(a)-rank(b)).forEach(x=>{h+=line(MC,`<td>${E(x.name)}</td><td>${RL(x.legRole.out,x.counts.out)}</td><td>${RL(x.legRole.ret,x.counts.ret)}</td>`);});
@@ -864,7 +886,7 @@ function buildReport(r){
       h+=`<div class="blk"><h3>2-${i+1}. ${l.label}</h3><table><tr><th>車出し</th><th class="c">台数</th><th class="n">片道車代（1台）</th><th class="n">立替額</th></tr>
       ${l.cars.map(c=>`<tr><td>${E(c.name)}</td><td class="c">${c.count}</td><td class="n">${Y(c.carPer)}</td><td class="n">${Y(c.cost)}</td></tr>`).join("")||`<tr><td colspan="4">なし</td></tr>`}
       <tr class="sum"><td>合計</td><td class="c">${l.carCount}台</td><td></td><td class="n">${Y(l.total)}</td></tr></table>
-      <p class="formula">${l.label}で車を使った家庭（車出し込み）${l.users.length}家庭で割る：${div(l.total,l.users.length)}</p></div>`;
+      <p class="formula">${l.label}で車を使った家庭（車出し込み${l.carOnly.length?`、返却のみの ${l.carOnly.join("・")} を除く`:""}）${l.users.length}家庭で割る：${div(l.total,l.users.length)}</p></div>`;
     });
     h+=`<div class="blk"><h3>2-3. 駐車場</h3><p class="formula">全台の合計 ${Y(r.parkTotal)} を台数で分けて、車出しの立て替えとして返します。</p>
     <table><tr><th>車出し</th><th class="c">台数</th><th class="n">立替として返す額</th></tr>
@@ -877,21 +899,21 @@ function buildReport(r){
   <table><tr><th>品目</th><th class="n">金額</th><th>立て替えた人</th></tr>
   ${its.map(i=>`<tr><td>${E(i.name)}</td><td class="n">${Y(i.price)}</td><td>${E(i.payer||"（未選択）")}</td></tr>`).join("")||`<tr><td colspan="3">なし</td></tr>`}
   <tr class="sum"><td>合計</td><td class="n">${Y(r.itemTotal)}</td><td></td></tr></table>
-  <p class="formula">参加 ${r.all.length}家庭で割る：${div(r.itemTotal,r.all.length)}</p></div>
+  <p class="formula">${r.othBearers.length}家庭で割る：${div(r.itemTotal,r.othBearers.length)}${r.refundOnly.length?`（${r.refundOnly.map(E).join("、")} は立て替えの返却のみのため負担なし）`:""}</p></div>
   <div class="blk"><h2>4. 家庭別精算</h2><p class="formula">支払いは10円未満を切り上げ、受け取りは10円単位に四捨五入しています（お金が足りなくなる場合のみ全員切り捨て）。</p></div>`;
 
   if(!r.split){
     const C=colg([13,14,13,12,13,12,12,11]);
-    const rk={"車出し":0,"乗った人":1,"単独":2};
+    const rk={"車出し":0,"車出し（返却のみ）":1,"乗った人":2,"単独":3};
     h+=head(C,`<th>家庭</th><th>区分</th><th class="n">立て替え</th><th class="n">車代負担</th><th class="n">差し入れ等負担</th><th class="n">支払い</th><th class="n">受け取り</th><th class="c">済・印</th>`);
-    [...r.rows].sort((a,b)=>rk[a.role]-rk[b.role]).forEach(x=>{h+=line(C,`<td>${E(x.name)}</td><td>${x.role}${x.count===2?"・2台":""}</td>
+    [...r.rows].sort((a,b)=>(rk[a.role]??9)-(rk[b.role]??9)).forEach(x=>{h+=line(C,`<td>${E(x.name)}</td><td>${x.role}${x.count===2?"・2台":""}</td>
       <td class="n">${x.tate?Y(x.tate):"—"}</td><td class="n">${x.fCar?Y(x.fCar):"—"}</td><td class="n">${x.fOth?Y(x.fOth):"—"}</td>
       <td class="n pay">${x.pay?Y(x.pay):""}</td><td class="n recv">${recvCell(x)}</td><td class="c">${isDone(x.name)?"済":""}</td>`);});
     r.outRows.forEach(x=>{h+=line(C,`<td>${E(x.name)}</td><td>立替のみ</td><td class="n">${Y(x.tate)}</td><td class="n">—</td><td class="n">—</td><td class="n"></td><td class="n recv">${recvCell(x)}</td><td class="c">${isDone(x.name)?"済":""}</td>`);});
   }else{
     const C=colg([11,14,12,17,12,11,12,11]);
-    const RS=(x,k)=>x.legRole[k]==="d"?`車出し${x.counts[k]===2?"(2台)":""}`:x.legRole[k]==="r"?"同乗":"—";
-    const rank=x=>Math.min(...["out","ret"].map(k=>x.legRole[k]==="d"?0:x.legRole[k]==="r"?1:2));
+    const RS=(x,k)=>x.legRole[k]==="d"||x.legRole[k]==="o"?`車出し${x.counts[k]===2?"(2台)":""}${x.legRole[k]==="o"?'<div class="sm">返却のみ</div>':""}`:x.legRole[k]==="r"?"同乗":"—";
+    const rank=x=>Math.min(...["out","ret"].map(k=>x.legRole[k]==="d"?0:x.legRole[k]==="o"?1:x.legRole[k]==="r"?2:3));
     h+=head(C,`<th>家庭</th><th>区分</th><th class="n">立て替え</th><th class="n">車代・駐車場<br>負担</th><th class="n">差し入れ等<br>負担</th><th class="n">支払い</th><th class="n">受け取り</th><th class="c">済・印</th>`);
     [...r.rows].sort((a,b)=>rank(a)-rank(b)).forEach(x=>{h+=line(C,`<td>${E(x.name)}</td><td>往 ${RS(x,"out")}<br>復 ${RS(x,"ret")}</td>
       <td class="n">${x.tate?Y(x.tate):"—"}</td>
