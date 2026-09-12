@@ -51,6 +51,13 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .item label{margin:0 0 2px;font-size:11px}
 .item button{padding:0;height:42px;border-color:var(--line);color:var(--akane);font-size:18px}
 .btns{display:flex;flex-wrap:wrap;gap:8px}
+.btns+.btns2,.btns2+.btns,.btns2+.btns2{margin-top:8px}
+.btns2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btns2 button{width:100%;white-space:nowrap;padding-left:4px;padding-right:4px}
+.topbar{display:flex;justify-content:flex-end;padding:2px 2px 0}
+.endrow{display:flex;justify-content:flex-end;margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
+button.quiet{border:0;background:none;color:var(--mute);font-size:13px;padding:6px 2px;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+button.quiet:hover{color:var(--akane)}
 button{font:inherit;font-size:15px;padding:10px 14px;border-radius:4px;border:1px solid var(--ai);background:#fff;color:var(--ai);cursor:pointer}
 button.main{background:var(--ai);color:#fff}
 button.add{margin-top:10px;width:100%;border-style:dashed}
@@ -108,7 +115,8 @@ button.del{border-color:var(--line);color:var(--akane);padding:6px 10px;font-siz
 #report .pay{color:var(--akane)} #report .recv{color:var(--ai)}
 #report .note{border:1px solid #999;min-height:48px;padding:6px 8px;white-space:pre-wrap}
 #report .sign{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px}
-#report .sign div{border:1px solid #999;height:64px;padding:4px 6px;font-size:11px;color:#444}
+#report .sign>div{border:1px solid #999;height:64px;padding:4px 6px;font-size:11px;color:#444}
+#report .signv{border:0;height:auto;padding:6px 0 0;font-size:14px;color:#111}
 #report .foot{font-size:10px;color:#666;margin-top:10px}
 @media print{
   body *{visibility:hidden}
@@ -142,6 +150,7 @@ button.mini{font-size:12px;padding:4px 10px}
   <p>大会・練習試合の車代と差し入れ代をまとめて計算</p>
 </header>
 <main>
+<div class="topbar"><button class="clear quiet">入力をクリア</button></div>
 
 <section>
   <h2>大会</h2>
@@ -149,7 +158,10 @@ button.mini{font-size:12px;padding:4px 10px}
     <div><label for="date">日時</label><input id="date" type="date"></div>
     <div><label for="place">場所</label><input id="place" placeholder="〇〇市総合体育館"></div>
   </div>
-  <label for="event">大会名</label><input id="event" placeholder="〇〇少年剣道大会">
+  <div class="row">
+    <div><label for="event">大会名</label><input id="event" placeholder="〇〇少年剣道大会"></div>
+    <div><label for="author">作成者</label><input id="author"></div>
+  </div>
 </section>
 
 <section>
@@ -242,23 +254,25 @@ button.mini{font-size:12px;padding:4px 10px}
 </section>
 
 <section>
-  <div class="btns">
+  <div class="btns2">
     <button class="main" id="btnCopy">LINE用にコピー</button>
     <button id="btnPdf">PDFで書き出す</button>
+  </div>
+  <div class="btns2">
     <button id="btnJson">データを書き出す</button>
-    <button id="btnLoad">ファイルから読み込む</button>
-    <button id="btnNew">新しく入力</button>
+    <button id="btnLoad">データを読み込む</button>
   </div>
   <input type="file" id="fileIn" accept=".pdf,.json,application/pdf,application/json" hidden>
   <p class="hint" id="saveState">入力は自動で保存されます。</p>
-  <p class="hint">書き出したPDFには入力データも入っています。あとで「ファイルから読み込む」でそのPDF（またはデータファイル）を選ぶと、続きから入力し直せます。</p>
+  <p class="hint">書き出したPDFには入力データも入っています。あとで「データを読み込む」でそのPDF（またはデータファイル）を選ぶと、続きから入力し直せます。</p>
+  <div class="endrow"><button class="clear quiet">入力をクリア</button></div>
 </section>
 </main>
 <footer>大阪ひかり剣友会</footer>
 <div id="report" aria-hidden="true"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
-const TXT=["carRound","date","event","place","drivers","riders","solo","outDrivers","outRiders","retDrivers","retRiders","none","defCar","defPark","km","trip","nenpi","gas","toll","note"];
+const TXT=["carRound","date","event","place","author","drivers","riders","solo","outDrivers","outRiders","retDrivers","retRiders","none","defCar","defPark","km","trip","nenpi","gas","toll","note"];
 const SPLIT_F=["outDrivers","outRiders","retDrivers","retRiders","none"];
 const SONOTA="その他",EPS=1e-6,BAD_NAME="__proto__";
 const newState=()=>({carMode:"direct",trip:"round",nenpi:"9",carRound:"100",twoCar:false,split:false,parkVer:2,cars:{},done:{},
@@ -799,10 +813,10 @@ $("btnCopy").onclick=async()=>toast(await copyText(lineText())?"コピーしま�
 $("btnJson").onclick=()=>{render();download(new Blob([packData()],{type:"application/json"}),`遠征費精算データ_${baseName()}.json`);toast("データを書き出しました");};
 $("btnLoad").onclick=()=>$("fileIn").click();
 $("fileIn").onchange=e=>{const f=e.target.files[0]; if(f) loadFile(f); e.target.value="";};
-$("btnNew").onclick=()=>{
+document.querySelectorAll("button.clear").forEach(b=>b.onclick=()=>{
   if(!confirm("入力をすべて消して新しく始めますか？\n残したい場合は、先に「データを書き出す」かPDFの書き出しをしてください。")) return;
   st=newState();writeForm();render();window.scrollTo({top:0});
-};
+});
 
 /* ---------- PDF書き出し ---------- */
 const PAGE_H=1123, M_TOP=44, M_BOT=48;
@@ -892,7 +906,7 @@ function buildReport(r){
   <tr><th>返す額（受け取りの合計）</th><td class="n recv">${Y(r.sumRecv)}</td></tr>
   <tr class="sum"><td>余り（端数処理による差額）</td><td class="n">${Y(r.surplus)}</td></tr></table></div>
   <div class="blk"><h2>6. 備考</h2><div class="note">${E(st.note||"")}</div></div>
-  <div class="blk"><h2>7. 確認</h2><div class="sign"><div>作成者</div><div>確認者</div><div>精算完了日</div></div>
+  <div class="blk"><h2>7. 確認</h2><div class="sign"><div>作成者<div class="signv">${E(st.author||"")}</div></div><div>確認者</div><div>精算完了日</div></div>
   <p class="foot">立て替えの合計 ${Y(r.sumTate)} ＝ ${carFoot} ＋ 駐車場 ${Y(r.parkTotal)} ＋ 差し入れ等 ${Y(r.itemTotal)}</p></div>`;
   const rep=$("report"); rep.style.height=""; rep.innerHTML=h;
   // ページの境目で表や項目が切れないよう、はみ出す塊の前に余白を入れる
