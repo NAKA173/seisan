@@ -195,7 +195,11 @@ button.mini{font-size:12px;padding:4px 10px}
     <div class="row3">
       <div><label for="nenpi">燃費</label><div class="unit" data-u="km/L"><input id="nenpi" type="number" inputmode="decimal" min="0" value="9" style="padding-right:48px"></div></div>
       <div><label for="gas">ガソリン代</label><div class="unit" data-u="円/L"><input id="gas" type="number" inputmode="numeric" min="0" placeholder="170" style="padding-right:48px"></div></div>
+      <div><label for="toll" id="lblToll">高速代（1台）</label><div class="unit" data-u="円"><input id="toll" type="number" inputmode="numeric" min="0" placeholder="0"></div></div>
+    </div>
+    <div class="row">
       <div><label for="defPark2">駐車場（合計）</label><div class="unit" data-u="円"><input id="defPark2" type="number" inputmode="numeric" min="0" placeholder="0"></div></div>
+      <div></div>
     </div>
     <div class="calcout" id="gasOut"></div>
   </div>
@@ -250,7 +254,7 @@ button.mini{font-size:12px;padding:4px 10px}
 <div id="report" aria-hidden="true"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
-const TXT=["date","event","place","drivers","riders","solo","outDrivers","outRiders","retDrivers","retRiders","none","defCar","defPark","km","trip","nenpi","gas","note"];
+const TXT=["date","event","place","drivers","riders","solo","outDrivers","outRiders","retDrivers","retRiders","none","defCar","defPark","km","trip","nenpi","gas","toll","note"];
 const SPLIT_F=["outDrivers","outRiders","retDrivers","retRiders","none"];
 const SONOTA="その他",EPS=1e-6,BAD_NAME="__proto__";
 const newState=()=>({carMode:"direct",trip:"round",nenpi:"9",twoCar:false,split:false,parkVer:2,cars:{},done:{},
@@ -337,8 +341,8 @@ function legsEqual(){
 /* ---------- 計算 ---------- */
 function baseCar(){
   if(st.carMode==="gas"){
-    const km=num(st.km)*(st.trip==="oneway"?2:1), nen=num(st.nenpi)||9;
-    return Math.round(km/nen*num(st.gas)); // 1台あたり（往復）は1円単位に丸める
+    const mul=st.trip==="oneway"?2:1, km=num(st.km)*mul, nen=num(st.nenpi)||9;
+    return Math.round(km/nen*num(st.gas))+num(st.toll)*mul; // ガソリン代は1円単位に丸め、高速代を足す
   }
   return num(st.defCar);
 }
@@ -462,7 +466,7 @@ function checks(r){
   r.items.forEach(it=>{
     if(!it.price) return;
     if(!it.payer) push("ng",`「${it.name}」を立て替えた人が選ばれていません。このままでは ${yen(it.price)}円が誰にも返りません。`);
-    else if(it.payer!==SONOTA&&!r.all.includes(it.payer)) push("ng",`「${it.name}」の立替者 ${it.payer} が参加家庭にいません。`);
+    else if(it.payer!==SONOTA&&!r.all.includes(it.payer)) push("ng",`「${it.name}」の立替者 ${it.payer} が参加家庭にいません。${it.payer} には ${yen(it.price)}円を全額返し、${it.name}代は残りの家庭で割っています。参加家庭に入れ直すか、立て替えた人を選び直してください。`);
   });
   const itemOk=r.items.filter(i=>i.price&&i.payer).length;
   if(itemOk) push("ok",`差し入れ等 ${itemOk}品目・合計 ${yen(r.itemTotal)}円を、立て替えた人に返金します。`);
@@ -470,7 +474,7 @@ function checks(r){
   const carTxt=r.split?`往路車代 ${yen(r.legs[0].total)}円＋復路車代 ${yen(r.legs[1].total)}円`:`車代 ${yen(r.carTotal)}円`;
   if(Math.abs(r.sumTate-exp)<0.01) push("ok",`立て替えの合計 ${yen(r.sumTate)}円は、${carTxt}＋駐車場 ${yen(r.parkTotal)}円＋差し入れ等 ${yen(r.itemTotal)}円と一致しています。`);
   else push("ng",`立て替えの合計が一致しません（${yen(r.sumTate)}円と ${yen(exp)}円）。`);
-  if(r.all.length){
+  if(r.all.length||r.outRows.length){
     if(r.surplus>=0) push("ok",`集める額 ${yen(r.sumPay)}円 ≧ 返す額 ${yen(r.sumRecv)}円なので、お金は足ります。`);
     else push("ng",`返す額が集める額を ${yen(-r.surplus)}円上回っています。`);
     if(r.floorAll) push("warn",`四捨五入すると返す額が集める額を ${yen(r.roundSum-r.sumPay)}円上回るため、今回は受け取りを全員10円未満切り捨てにしています（※）。`);
@@ -565,7 +569,11 @@ function card(x,r){
 }
 
 /* ---------- 描画 ---------- */
-function gasFormula(){return `${yen(num(st.km)*(st.trip==="oneway"?2:1))}km ÷ ${yen(num(st.nenpi)||9)}km/L × ${yen(num(st.gas))}円`;}
+function tollMul(){return st.trip==="oneway"?2:1;}
+function gasFormula(){
+  const f=`${yen(num(st.km)*tollMul())}km ÷ ${yen(num(st.nenpi)||9)}km/L × ${yen(num(st.gas))}円`;
+  return num(st.toll)?`${f} ＋ 高速代 ${yen(num(st.toll))}円${tollMul()===2?"×2":""}`:f;
+}
 function render(){
   readForm();
   $("normalRoles").hidden=st.split; $("splitRoles").hidden=!st.split; $("splitCarHint").hidden=!st.split;
@@ -573,7 +581,8 @@ function render(){
   $("directBox").hidden=st.carMode!=="direct"; $("gasBox").hidden=st.carMode!=="gas";
   if(document.activeElement===$("defPark2")) {$("defPark").value=$("defPark2").value;st.defPark=$("defPark2").value;} else $("defPark2").value=st.defPark;
   const r=calc();
-  $("gasOut").innerHTML=st.carMode==="gas"?`${gasFormula()} ＝ 1台あたり <b>${yen(r.base)}円</b>（1円未満四捨五入）${st.split?`／片道 <b>${yen(r.base/2)}円</b>`:""}`:"";
+  $("lblToll").textContent=st.trip==="oneway"?"高速代（1台・片道）":"高速代（1台・往復）";
+  $("gasOut").innerHTML=st.carMode==="gas"?`${gasFormula()} ＝ 1台あたり <b>${yen(r.base)}円</b>（ガソリン代は1円未満四捨五入）${st.split?`／片道 <b>${yen(r.base/2)}円</b>`:""}`:"";
   buildDrivers(r); refreshPayers();
   $("moveTable").innerHTML=moveTable(r);
 
@@ -796,7 +805,7 @@ function buildReport(r){
   const its=r.items.filter(i=>i.price);
   const recvCell=x=>x.recv?(r.floorAll?"※":"")+Y(x.recv):"";
   const methodTxt=st.carMode==="gas"
-    ?`距離から計算：${yen(num(st.km)*(st.trip==="oneway"?2:1))}km（${st.trip==="oneway"?"片道×2":"往復"}）÷ 燃費 ${yen(num(st.nenpi)||9)}km/L × ガソリン代 ${yen(num(st.gas))}円/L ＝ 1台 ${r.split?"往復 ":""}${Y(r.base)}`
+    ?`距離から計算：${yen(num(st.km)*tollMul())}km（${st.trip==="oneway"?"片道×2":"往復"}）÷ 燃費 ${yen(num(st.nenpi)||9)}km/L × ガソリン代 ${yen(num(st.gas))}円/L${num(st.toll)?` ＋ 高速代 ${yen(num(st.toll))}円${tollMul()===2?"（片道）×2":"（往復）"}`:""} ＝ 1台 ${r.split?"往復 ":""}${Y(r.base)}`
     :`直接入力：1台 ${r.split?"往復 ":""}${Y(r.base)}`;
 
   let h=`<div class="pg-top"></div>
